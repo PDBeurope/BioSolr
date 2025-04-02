@@ -27,16 +27,66 @@ public class PhmmerClient {
   }
 
   public JsonObject getResults(String database, String sequence) throws IOException {
-    String respUrl = getResultsUrl(database, sequence);
-    LOG.debug("response URL=" + respUrl);
-    return getResultsJson(respUrl);
+    String submissionUrl = this.phmmerUrl + "/search/phmmer";
+
+    // submit the job
+    LOG.debug("submission URL=" + submissionUrl);
+    try (HttpConnection http = new HttpConnection(submissionUrl)) {
+      http.post("{" +
+            "\"database\":\"" + database + "\"," +
+            "\"input\":\">Seq\\n" + sequence + "\"" +
+            "}");
+      String jobId = http.getJson().getString("id");
+      LOG.debug("Submitted job with ID=" + jobId);
+
+      // get the results
+      String resultsUrl = this.phmmerUrl + "/result/" + jobId +"?with_domains=true";
+      LOG.debug("results URL=" + resultsUrl);
+
+      try (HttpConnection http2 = new HttpConnection(resultsUrl)) {
+        http2.get("application/json");
+
+        LOG.debug("Response is " + http2.getResponseCode() + " " + http2.getResponseMessage());
+        JsonObject response = http2.getJson();
+        String status = response.getString("status");
+        while (!status.equals("SUCCESS")) {
+          LOG.debug("Job status is " + status + "; waiting 3s ...");
+          try {
+            Thread.sleep(3000);
+          } catch (InterruptedException e) {
+            e.printStackTrace();
+          }
+
+          // handle failures
+          if (status.equals("failure")) {
+            LOG.error("Job failed: " +jobId);
+            throw new IOException("Job failed: " + response.getString("message"));
+          }
+
+          try (HttpConnection httpRetry = new HttpConnection(resultsUrl)) {
+            httpRetry.get("application/json");
+            response = httpRetry.getJson();
+            status = response.getString("status");
+          }
+        }
+
+        return response;
+      }
+      
+    }
+
   }
   
   private String getResultsUrl(String database, String sequence) throws IOException {
-    LOG.info("getting PHMMER data for seqdb=" + database + "; sequence=" + sequence);
+    LOG.debug("getting PHMMER data for seqdb=" + database + "; sequence=" + sequence);
     try (HttpConnection http = new HttpConnection(phmmerUrl)) {
-      http.post("seqdb=" + database + "&seq=>Seq%0D%0A" + sequence);
-      return http.getHeader("Location");
+      // http.post("seqdb=" + database + "&seq=>Seq%0D%0A" + sequence);
+      http.post("{" +
+            "\"database\":\"" + database + "\"," +
+            "\"input\":\">Seq\\n" + sequence + "\"" +
+            "}");
+      return http.getJson().getString("id");
+      // return http.getHeader("Location");
     }
   }
 
@@ -84,6 +134,14 @@ public class PhmmerClient {
            JsonReader reader = Json.createReader(in)) {
         return reader.readObject();
       }
+    }
+
+    private int getResponseCode() throws IOException {
+      return http.getResponseCode();
+    }
+
+    private String getResponseMessage() throws IOException {
+      return http.getResponseMessage();
     }
     
     @Override

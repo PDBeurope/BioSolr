@@ -21,9 +21,8 @@ public class PhmmerJob {
 
   public PhmmerResults runJob() throws IOException {
     JsonObject response = client.getResults(database, sequence);
-    JsonObject results = response.getJsonObject("results");
+    JsonObject results = response.getJsonObject("result");
     JsonArray hits = results.getJsonArray("hits");
-
     PhmmerResults phmmer = new PhmmerResults(hits.size());
     for (int i = 0; i < hits.size(); ++i) {
       Alignment a = new Alignment(hits.getJsonObject(i));

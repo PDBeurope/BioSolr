@@ -2,6 +2,7 @@ package uk.co.flax.biosolr.pdbe.phmmer;
 
 import javax.json.JsonArray;
 import javax.json.JsonObject;
+import javax.json.JsonValue;
 
 public class Alignment {
   
@@ -56,46 +57,71 @@ public class Alignment {
   private int similarityCount;
   
   public Alignment(JsonObject hit) {
-    target = hit.getString("acc");
-    species = hit.getString("species");
-    description = hit.getString("desc");
-    score = Double.parseDouble(hit.getString("score"));
-    eValue = Double.parseDouble(hit.getString("evalue"));
+    JsonObject metadata = hit.getJsonObject("metadata");
+    target = metadata.getString("accession");
+    species = metadata.getString("species");
+    description = metadata.getString("description");
+    score = hit.getJsonNumber("score").doubleValue();
+    bias = hit.getJsonNumber("bias").doubleValue();
+
+    JsonValue eValueJSON = hit.get("evalue");
+
+    if (eValueJSON.getValueType() == JsonValue.ValueType.NUMBER) {
+      eValue = hit.getJsonNumber("evalue").doubleValue();
+    } else if (eValueJSON.getValueType() == JsonValue.ValueType.STRING) {
+      eValue = Double.parseDouble(hit.getString("evalue"));
+    }
 
     JsonArray domains = hit.getJsonArray("domains");
     for (int i = 0; i < domains.size(); ++i) {
       JsonObject domain = domains.getJsonObject(i);
       
       // skip insignificant matches (by ind. eValue)
-      eValueInd = Double.parseDouble(domain.getString("ievalue"));
+      JsonValue eValue = domain.get("ievalue");
+      if (eValue.getValueType() == JsonValue.ValueType.NUMBER) {
+        eValueInd = domain.getJsonNumber("ievalue").doubleValue();
+      } else if (eValue.getValueType() == JsonValue.ValueType.STRING) {
+        eValueInd = Double.parseDouble(domain.getString("ievalue"));
+      }
+
       if (eValueInd >= SIGNIFICANCE_THRESHOLD) continue;
+
+      JsonValue ceValue = domain.get("cevalue");
+
+      if (ceValue.getValueType() == JsonValue.ValueType.NUMBER) {
+        eValueCond = domain.getJsonNumber("cevalue").doubleValue();
+      } else if (ceValue.getValueType() == JsonValue.ValueType.STRING) {
+        eValueCond = Double.parseDouble(domain.getString("cevalue"));
+      }
+
+      JsonObject alignment = domain.getJsonObject("alignment_display");
+
+      querySequence = alignment.getString("model");
+      querySequenceStart = alignment.getInt("hmmfrom");
+      querySequenceEnd = alignment.getInt("hmmto");
       
-      eValueCond = Double.parseDouble(domain.getString("cevalue"));
+      match = alignment.getString("mline");
       
-      querySequence = domain.getString("alimodel");
-      querySequenceStart = domain.getInt("alihmmfrom");
-      querySequenceEnd = domain.getInt("alihmmto");
-      
-      match = domain.getString("alimline");
-      
-      targetSequence = domain.getString("aliaseq");
-      targetSequenceStart = domain.getInt("alisqfrom");
-      targetSequenceEnd = domain.getInt("alisqto");
+      targetSequence = alignment.getString("aseq");
+      targetSequenceStart = alignment.getInt("sqfrom");
+      targetSequenceEnd = alignment.getInt("sqto");
       
       targetEnvelopeStart = domain.getInt("ienv");
       targetEnvelopeEnd = domain.getInt("jenv");
       
-      posteriorProbability = domain.getString("alippline");
+      posteriorProbability = alignment.getString("ppline");
       
-      bias = Double.parseDouble(domain.getString("bias"));
-      accuracy = Double.parseDouble(domain.getString("oasc"));
+      accuracy = domain.getJsonNumber("oasc").doubleValue();
       bitScore = domain.getJsonNumber("bitscore").doubleValue();
+
+      JsonArray identity = alignment.getJsonArray("identity");
+      JsonArray similarity = alignment.getJsonArray("similarity");
       
-      identityPercent = 100 * domain.getJsonNumber("aliId").doubleValue();
-      identityCount = domain.getInt("aliIdCount");
+      identityPercent = 100 * identity.getJsonNumber(0).doubleValue();
+      identityCount = identity.getInt(1);
       
-      similarityPercent = 100 * domain.getJsonNumber("aliSim").doubleValue();
-      similarityCount = domain.getInt("aliSimCount");
+      similarityPercent = 100 * similarity.getJsonNumber(0).doubleValue();
+      similarityCount = similarity.getInt(1);
       
       // we consider only the first significant match
       break;
